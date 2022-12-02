@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8">
+		<title></title>
+	</head>
+	<style>
+		page,body{
+			width: 100%;
+			height: 100%;
+			padding: 0;
+			margin: 0;
+			box-sizing: border-box;
+			overflow: hidden;
+		}
+		#myCanvas{
+			position: relative;
+		}
+		.info_panel{
+			position: absolute;
+			left: 0;
+			top: 0;
+		}
+	</style>
+	<body>
+		<canvas id="myCanvas"></canvas>
+		<div class="info_panel">
+			<div class="score"></div>
+			<div class="life"></div>
+		</div>
+	</body>
+	<script>
+		// 炸弹
+		const bombImg = document.createElement('img');
+		bombImg.src = 'https://pic.imgdb.cn/item/63896c9a16f2c2beb16d0c89.png';
+		// 船
+		const shipImg = document.createElement('img');
+		shipImg.src='https://pic.imgdb.cn/item/6389629316f2c2beb15f1c01.png';
+		// 导弹
+		const missilesImg = document.createElement('img');
+		missilesImg.src = 'https://pic.imgdb.cn/item/63896ebf16f2c2beb1707517.png';
+		// 潜水艇
+		const submarineRightImg = document.createElement('img');
+		submarineRightImg.src = 'https://pic.imgdb.cn/item/63896ba516f2c2beb16ae991.png';
+		const submarineLeftImg = document.createElement('img');
+		submarineLeftImg.src = 'https://pic.imgdb.cn/item/63896b5816f2c2beb16a73bf.png';
+		const screenWidth = window.innerWidth;
+		const screenHeight = window.innerHeight;
+		const canvas = document.getElementById('myCanvas');
+		
+		canvas.width = screenWidth;
+		canvas.height = screenHeight;
+		const ctx = canvas.getContext('2d');
+		// 设置分数
+		var scoreNum = 0;
+		const scoreEle = document.getElementsByClassName('score')[0];
+		function setScore(){
+			scoreEle.innerHTML = `分数：${scoreNum}`
+		}
+		setScore();
+		// 设置生命
+		var lifeNum = 0;
+		const lifeEle = document.getElementsByClassName('life')[0];
+		function setLife(){
+			lifeEle.innerHTML = `中弹：${lifeNum}`;
+		}
+		setLife();
+		//绘制队列
+		let drawList = new Map();
+		// 清除画布
+		function refreshScreen(){
+			setInterval(()=>{
+				ctx.clearRect(0,0,screenWidth+1,screenHeight+1);
+				drawList.forEach((value, key, map)=>{
+					value.call(key);
+				})
+			},60)
+		}
+		// 海平面
+		drawList.set(window,()=>{
+				ctx.beginPath();
+				ctx.fillStyle = "#3992DD";
+				ctx.fillRect(0,screenHeight/4,screenWidth,screenHeight/4*3)
+				ctx.stroke()
+			}
+		)
+		// 炸弹
+		class Bomb {
+			constructor(x,y){
+				this.x = x;
+				this.y = y;
+				this.w = 18;
+				this.h = 18;
+				this.speed = 5;
+			}
+
+			draw(){
+				ctx.drawImage(bombImg, this.x - this.w/2, this.y,this.w,this.h);
+				this.y += this.speed;
+				this.checkDownSeaCollisionn();
+				this.checkSubmarineCollisionn();
+			}
+
+			//海底碰撞检测
+			checkDownSeaCollisionn(){
+				if(this.y > screenHeight){
+					drawList.delete(this);
+				}
+			}
+			//与潜水艇的碰撞检测
+			checkSubmarineCollisionn(){
+				let _instanceList =  [...Submarine.prototype.instanceList];
+				_instanceList.forEach((value,index)=>{
+					if( this.x  > value.x - value.w/2 - this.w/2 && this.x < value.x + value.w/2 + this.w/2  && this.y + this.h > value.y - value.h && this.y < value.y){
+						Submarine.prototype.instanceList.delete(value);
+						drawList.delete(value);
+						drawList.delete(this);
+						// 新增一条潜水艇
+						let _submarine = new Submarine(Math.random()>0.5?'right':'left','black');
+						_submarine.draw().move();
+						drawList.set(_submarine,_submarine.draw().move);
+						scoreNum += 100;
+						setScore();
+						return true;
+					}
+					return false;
+				})
+			}
+		}
+		//导弹
+		class Missiles {
+			constructor(x,y){
+				this.x = x;
+				this.y = y;
+				this.w = 14;
+				this.h = 25;
+				this.speed = 5;
+			}
+
+			draw(){
+				ctx.drawImage(missilesImg, this.x - this.w/2, this.y - this.h,this.w,this.h);
+				this.y -= this.speed;
+				this.checkCollision()
+			}
+
+			//海平面碰撞检测
+			checkCollision(){
+				if(this.y - this.h < screenHeight/4){
+					//碰到海平面时候，同时进行与船的碰撞检测
+					let _maxX = this.x + this.w/2;
+					let _minX = this.x - this.w/2;	
+					if(myShip.x - myShip.w/2 < _minX && myShip.x + myShip.w/2 > _maxX){
+						lifeNum ++;
+						setLife();
+					}				
+					drawList.delete(this);
+				}
+			}
+		}
+		// 船
+		class Ship {
+			constructor(x,y){
+				this.x = x;
+				this.y = y;
+				this.w = 60;
+				this.h = 41.3;
+				this.keyEvents = new Map();
+				this.throttleTimer = null;
+			}
+			
+			draw(){
+				ctx.drawImage(shipImg, this.x - this.w/2, this.y - this.h,this.w,this.h);
+			}
+			//向右移动
+			ArrowRight(){
+				this.x += 5;
+			}
+
+			ArrowLeft(){
+				this.x -= 5;
+			}
+
+			Space(){
+				if(!this.throttleTimer){
+					let bomb = new Bomb(this.x,this.y);
+					drawList.set(bomb,bomb.draw)
+					this.throttleTimer = setTimeout(()=>{
+						clearTimeout(this.throttleTimer);
+						this.throttleTimer = null;
+					},500)
+				}
+				
+			}
+
+			run(){
+				this.keyEvents.forEach((value,key)=>{
+					this[value].call(this)
+				})
+				this.draw()
+			}
+		}
+		/*
+		* 潜水艇
+		* @param y 深度
+		* @param direction 方向 right:由左到右 left:由右到左
+		* @param speed 速度
+		*/
+		class Submarine{
+			constructor(direction = 'right',color = 'red'){
+				let _y = screenHeight/4*3*Math.round(Math.random()*10)/10 +100;
+				this.x = direction == 'right'? 0 : screenWidth;
+				this.y = screenHeight/4 + (_y  > screenHeight/4*3 ? screenHeight/4*3 : _y);
+				this.direction = direction;//运动方向
+				this.h = 26;
+				this.w = 57//潜水艇宽度
+				this.timer = null;
+				this.speed = 5; //速度
+				Submarine.prototype.instanceList.add(this);
+				this.throttleTimer = null;
+			}
+			
+		}
+		// 绘制潜水艇
+		Submarine.prototype.draw = function(){
+			ctx.beginPath();
+			if(this.direction == 'right'){
+				ctx.drawImage(submarineRightImg, this.x - this.w/2, this.y - this.h,this.w,this.h);
+			}else{
+				ctx.drawImage(submarineLeftImg, this.x - this.w/2, this.y - this.h,this.w,this.h);
+			}
+			ctx.closePath();
+			ctx.fillStyle= this.color;
+			ctx.fill();
+			return this;
+		}
+		// 开始移动潜水艇
+		Submarine.prototype.move = function(){
+			if(this.direction == 'right'){
+				this.x += this.speed;
+				this.draw();
+				if(this.x - this.w > screenWidth){
+					this.instanceList.delete(this);
+					drawList.delete(this);
+					let _submarine = new Submarine(Math.random()>0.5?'right':'left','black');
+					_submarine.draw().move();
+					drawList.set(_submarine,_submarine.draw().move);
+				}
+			}else{
+				this.x -= this.speed;
+				this.draw();
+				if(this.x + this.w < 0){
+					this.instanceList.delete(this);
+					drawList.delete(this);
+					let _submarine = new Submarine(Math.random()>0.5?'right':'left','black');
+					_submarine.draw().move();
+					drawList.set(_submarine,_submarine.draw().move);
+				}
+			}
+			this.emitMissiles()
+			return this;
+		}
+		//
+		Submarine.prototype.instanceList = new Set();
+		//发射导弹
+		Submarine.prototype.emitMissiles = function(){
+			if(!this.throttleTimer){
+				let _missiles = new Missiles(this.x,this.y - this.h);
+				drawList.set(_missiles,_missiles.draw)
+				this.throttleTimer = setTimeout(()=>{
+					clearTimeout(this.throttleTimer);
+					this.throttleTimer = null;
+				},1500)
+			}
+		}
+		var myShip = new Ship(screenWidth/2,screenHeight/4);
+
+		drawList.set(myShip,myShip.run)
+		/*
+		*创建潜艇
+		* @params num 创建数量
+		*/  
+		function createSubmarine(num){
+			for(let i = 0; i < num; i++){
+			 let timer = setTimeout(()=>{
+					let _submarine = new Submarine(Math.random()>0.5?'right':'left',i==0?'red':'black');
+					_submarine.draw().move();
+					drawList.set(_submarine,_submarine.draw().move)
+					clearTimeout(timer);
+					timer = null;
+				},i*1000)
+			}
+		}
+		createSubmarine(5);
+
+		refreshScreen()
+
+		// 监听键盘
+		document.addEventListener('keydown',({keyCode,code})=>{
+			// if(keyCode == 3)
+			if(keyCode == 32 || keyCode == 37 || keyCode == 39){
+				if(keyCode == 37 || keyCode == 39){
+					myShip.keyEvents.set('move',code)
+				}else{
+					myShip.keyEvents.set('space',code)
+				}
+			}
+		})
+		document.addEventListener('keyup',({keyCode,code})=>{
+			if(keyCode == 32 || keyCode == 37 || keyCode == 39){
+				if(keyCode == 37 || keyCode == 39){
+					myShip.keyEvents.delete('move')
+				}else{
+					myShip.keyEvents.delete('space')
+				}
+			}
+		})
+	</script>
+</html>
